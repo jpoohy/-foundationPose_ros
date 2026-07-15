@@ -15,8 +15,13 @@ import argparse
 if __name__=='__main__':
   parser = argparse.ArgumentParser()
   code_dir = os.path.dirname(os.path.realpath(__file__))
-  parser.add_argument('--mesh_file', type=str, default=f'{code_dir}/demo_data/mustard0/mesh/textured_simple.obj')
-  parser.add_argument('--test_scene_dir', type=str, default=f'{code_dir}/demo_data/mustard0')
+  parser.add_argument('--mesh_file', type=str, default=f'{code_dir}/demo_data/021_bleach_cleanser/google_16k/textured.obj')
+  parser.add_argument('--test_scene_dir', type=str, default=f'{code_dir}/demo_data/021_bleach_cleanser')
+  
+  # parser.add_argument('--mesh_file', type=str, default=f'{code_dir}/demo_data/mustard0/mesh/textured_simple.obj')
+  # parser.add_argument('--test_scene_dir', type=str, default=f'{code_dir}/demo_data/mustard0')
+  
+  
   parser.add_argument('--est_refine_iter', type=int, default=5)
   parser.add_argument('--track_refine_iter', type=int, default=2)
   parser.add_argument('--debug', type=int, default=1)
@@ -39,9 +44,17 @@ if __name__=='__main__':
   refiner = PoseRefinePredictor()
   glctx = dr.RasterizeCudaContext()
   est = FoundationPose(model_pts=mesh.vertices, model_normals=mesh.vertex_normals, mesh=mesh, scorer=scorer, refiner=refiner, debug_dir=debug_dir, debug=debug, glctx=glctx)
+  # Default rotation grid (min_n_views=40, inplane_step=60) is ~240 pose
+  # hypotheses scored in one batch during register() -- too much for an 8GB
+  # GPU. Shrinking it here cuts that peak allocation proportionally; only
+  # affects register()'s initial coverage, not per-frame track_one().
+  est.make_rotation_grid(min_n_views=20, inplane_step=90)
   logging.info("estimator initialization done")
 
-  reader = YcbineoatReader(video_dir=args.test_scene_dir, shorter_side=None, zfar=np.inf)
+  # 021_bleach_cleanser's images are 1920x1080 vs mustard0's 640x480 (6.75x
+  # more pixels) -- register()'s per-hypothesis warp_perspective scales with
+  # H*W, so this scene needs downscaling too. shorter_side also rescales K.
+  reader = YcbineoatReader(video_dir=args.test_scene_dir, shorter_side=480, zfar=np.inf)
 
   for i in range(len(reader.color_files)):
     logging.info(f'i:{i}')
@@ -63,7 +76,9 @@ if __name__=='__main__':
       pose = est.track_one(rgb=color, depth=depth, K=reader.K, iteration=args.track_refine_iter)
 
     os.makedirs(f'{debug_dir}/ob_in_cam', exist_ok=True)
-    np.savetxt(f'{debug_dir}/ob_in_cam/{reader.id_strs[i]}.txt', pose.reshape(4,4))
+    ob_in_cam = pose.reshape(4,4)
+    np.savetxt(f'{debug_dir}/ob_in_cam/{reader.id_strs[i]}.txt', ob_in_cam)
+    print(f'frame {i} ({reader.id_strs[i]}) ob_in_cam:\n{ob_in_cam}')
 
     if debug>=1:
       center_pose = pose@np.linalg.inv(to_origin)

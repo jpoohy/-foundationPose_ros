@@ -1,0 +1,17 @@
+# Extends the working FoundationPose image (built for Ada/RTX 40-series GPUs,
+# nvcc supports compute_89) with everything ros_pose_server.py needs on top of it:
+#   - fastapi / uvicorn / websockets: the websocket bridge server itself.
+#   - hydra-core: sam2's config loader (iopath is already present in the base
+#     image, pulled in transitively by pytorch3d/fvcore).
+# The sam2 (real-time camera-predictor) source code and checkpoints are NOT
+# baked in here -- ros_pose_server.py's --sam2_repo_dir / --sam2_checkpoint
+# default to /home/zsj/segment-anything-2-real-time, which docker/run_container.sh
+# already bind-mounts into the container via `-v /home:/home`. Only the Python
+# packages that code imports need to live inside the image.
+FROM shingarey/foundationpose_custom_cuda121:latest
+
+SHELL ["/bin/bash", "--login", "-c"]
+
+RUN conda init bash &&\
+    conda activate my &&\
+    pip install fastapi uvicorn websockets hydra-core
